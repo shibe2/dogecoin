@@ -116,7 +116,8 @@ testScripts = [
     'wallet-dump.py',
     'listtransactions.py',
     # vv Tests less than 60s vv
-    # 'sendheaders.py',
+    'sendheaders.py',
+    'sendheaders_checkauxpow.py',
     'zapwallettxes.py',
     'importmulti.py',
     'mempool_limit.py',
