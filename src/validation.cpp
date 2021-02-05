@@ -73,6 +73,7 @@ bool fPruneMode = false;
 bool fIsBareMultisigStd = DEFAULT_PERMIT_BAREMULTISIG;
 bool fRequireStandard = true;
 bool fCheckBlockIndex = false;
+bool fCheckBlockAuxPoW = false;
 bool fCheckpointsEnabled = DEFAULT_CHECKPOINTS_ENABLED;
 size_t nCoinCacheUsage = 5000 * 300;
 uint64_t nPruneTarget = 0;
@@ -1142,7 +1143,7 @@ bool WriteBlockToDisk(const CBlock& block, CDiskBlockPos& pos, const CMessageHea
    both a block and its header.  */
 
 template<typename T>
-static bool ReadBlockOrHeader(T& block, const CDiskBlockPos& pos, const Consensus::Params& consensusParams, bool checkPow)
+static bool ReadBlockOrHeader(T& block, const CDiskBlockPos& pos, const Consensus::Params& consensusParams, bool shouldCheckAuxPoW)
 {
     block.SetNull();
 
@@ -1160,16 +1161,16 @@ static bool ReadBlockOrHeader(T& block, const CDiskBlockPos& pos, const Consensu
     }
 
     // Check the header
-    if (checkPow && !CheckAuxPowProofOfWork(block, consensusParams))
+    if (fCheckBlockAuxPoW && shouldCheckAuxPoW && !CheckAuxPowProofOfWork(block, consensusParams))
         return error("ReadBlockFromDisk: Errors in block header at %s", pos.ToString());
 
     return true;
 }
 
 template<typename T>
-static bool ReadBlockOrHeader(T& block, const CBlockIndex* pindex, const Consensus::Params& consensusParams, bool checkPow)
+static bool ReadBlockOrHeader(T& block, const CBlockIndex* pindex, const Consensus::Params& consensusParams, bool shouldCheckAuxPoW)
 {
-    if (!ReadBlockOrHeader(block, pindex->GetBlockPos(), consensusParams, checkPow))
+    if (!ReadBlockOrHeader(block, pindex->GetBlockPos(), consensusParams, shouldCheckAuxPoW))
         return false;
     if (block.GetHash() != pindex->GetBlockHash())
         return error("ReadBlockOrHeader(CBlock&, CBlockIndex*): GetHash() doesn't match index for %s at %s",
@@ -1177,19 +1178,19 @@ static bool ReadBlockOrHeader(T& block, const CBlockIndex* pindex, const Consens
     return true;
 }
 
-bool ReadBlockFromDisk(CBlock& block, const CDiskBlockPos& pos, const Consensus::Params& consensusParams, bool checkPow)
+bool ReadBlockFromDisk(CBlock& block, const CDiskBlockPos& pos, const Consensus::Params& consensusParams, bool shouldCheckAuxPoW)
 {
-    return ReadBlockOrHeader(block, pos, consensusParams, checkPow);
+    return ReadBlockOrHeader(block, pos, consensusParams, shouldCheckAuxPoW);
 }
 
-bool ReadBlockFromDisk(CBlock& block, const CBlockIndex* pindex, const Consensus::Params& consensusParams, bool checkPow)
+bool ReadBlockFromDisk(CBlock& block, const CBlockIndex* pindex, const Consensus::Params& consensusParams, bool shouldCheckAuxPoW)
 {
-    return ReadBlockOrHeader(block, pindex, consensusParams, checkPow);
+    return ReadBlockOrHeader(block, pindex, consensusParams, shouldCheckAuxPoW);
 }
 
-bool ReadBlockHeaderFromDisk(CBlockHeader& block, const CBlockIndex* pindex, const Consensus::Params& consensusParams, bool checkPow)
+bool ReadBlockHeaderFromDisk(CBlockHeader& block, const CBlockIndex* pindex, const Consensus::Params& consensusParams, bool shouldCheckAuxPoW)
 {
-    return ReadBlockOrHeader(block, pindex, consensusParams, checkPow);
+    return ReadBlockOrHeader(block, pindex, consensusParams, shouldCheckAuxPoW);
 }
 
 CAmount GetBlockSubsidy(int nHeight, const Consensus::Params& consensusParams)
