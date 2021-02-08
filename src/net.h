@@ -15,6 +15,7 @@
 #include "hash.h"
 #include "limitedmap.h"
 #include "netaddress.h"
+#include "perfcounters.h"
 #include "protocol.h"
 #include "random.h"
 #include "streams.h"
@@ -831,7 +832,7 @@ public:
 };
 
 
-
+extern CPerformanceCounters outgoingCounters;
 
 
 /** Return a timestamp in the future (in microseconds) for exponentially distributed events. */

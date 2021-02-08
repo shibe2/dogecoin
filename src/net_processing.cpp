@@ -63,6 +63,8 @@ static std::vector<std::pair<uint256, CTransactionRef>> vExtraTxnForCompact GUAR
 
 static const uint64_t RANDOMIZER_ID_ADDRESS_RELAY = 0x3cac0035b5866b90ULL; // SHA256("main address relay")[0:8]
 
+static CPerformanceCounters incomingCounters("incoming", std::chrono::minutes(5));
+
 // Internal stuff
 namespace {
     /** Number of nodes with fSyncStarted. */
@@ -1176,6 +1178,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         return true;
     }
 
+    incomingCounters.add("messages");
 
     if (!(pfrom->GetLocalServices() & NODE_BLOOM) &&
               (strCommand == NetMsgType::FILTERLOAD ||
@@ -1545,6 +1548,8 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
             bool fAlreadyHave = AlreadyHave(inv);
             LogPrint("net", "got inv: %s  %s peer=%d\n", inv.ToString(), fAlreadyHave ? "have" : "new", pfrom->id);
 
+            incomingCounters.add(std::string(NetMsgType::INV) + std::string(" ") + std::to_string(inv.type));
+
             if (inv.type == MSG_TX) {
                 inv.type |= nFetchFlags;
             }
@@ -1595,6 +1600,9 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
 
         if ((fDebug && vInv.size() > 0) || (vInv.size() == 1))
             LogPrint("net", "received getdata for: %s peer=%d\n", vInv[0].ToString(), pfrom->id);
+
+        for (unsigned int nInv = 0; nInv < vInv.size(); nInv++)
+            incomingCounters.add(std::string(NetMsgType::GETDATA) + std::string(" ") + std::to_string(vInv[nInv].type));
 
         pfrom->vRecvGetData.insert(pfrom->vRecvGetData.end(), vInv.begin(), vInv.end());
         ProcessGetData(pfrom, chainparams.GetConsensus(chainActive.Height()), connman, interruptMsgProc);
@@ -1649,6 +1657,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
                 LogPrint("net", " getblocks stopping, pruned or too old block at %d %s\n", pindex->nHeight, pindex->GetBlockHash().ToString());
                 break;
             }
+            incomingCounters.add(NetMsgType::GETBLOCKS);
             pfrom->PushInventory(CInv(MSG_BLOCK, pindex->GetBlockHash()));
             if (--nLimit <= 0)
             {
@@ -1674,6 +1683,9 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
                 recent_block = most_recent_block;
             // Unlock cs_most_recent_block to avoid cs_main lock inversion
         }
+
+        incomingCounters.add(NetMsgType::GETBLOCKTXN, req.indexes.size());
+
         if (recent_block) {
             SendBlockTransactions(*recent_block, req, pfrom, connman);
             return true;
@@ -1717,6 +1729,8 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         CBlockLocator locator;
         uint256 hashStop;
         vRecv >> locator >> hashStop;
+
+        incomingCounters.add(NetMsgType::GETHEADERS);
 
         LOCK(cs_main);
         if (IsInitialBlockDownload() && !pfrom->fWhitelisted) {
@@ -1765,6 +1779,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         // will re-announce the new block via headers (or compact blocks again)
         // in the SendMessages logic.
         nodestate->pindexBestHeaderSent = pindex ? pindex : chainActive.Tip();
+        outgoingCounters.add(NetMsgType::HEADERS, vHeaders.size());
         connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::HEADERS, vHeaders));
     }
 
@@ -1784,6 +1799,8 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         CTransactionRef ptx;
         vRecv >> ptx;
         const CTransaction& tx = *ptx;
+
+        incomingCounters.add(NetMsgType::TX);
 
         CInv inv(MSG_TX, tx.GetHash());
         pfrom->AddInventoryKnown(inv);
@@ -1958,6 +1975,8 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
     {
         CBlockHeaderAndShortTxIDs cmpctblock;
         vRecv >> cmpctblock;
+
+        incomingCounters.add(NetMsgType::CMPCTBLOCK);
 
         {
         LOCK(cs_main);
@@ -2155,6 +2174,8 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         BlockTransactions resp;
         vRecv >> resp;
 
+        incomingCounters.add(NetMsgType::BLOCKTXN, resp.txn.size());
+
         std::shared_ptr<CBlock> pblock = std::make_shared<CBlock>();
         bool fBlockRead = false;
         {
@@ -2239,6 +2260,8 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
             // Nothing interesting. Stop asking this peers for more headers.
             return true;
         }
+
+        incomingCounters.add(NetMsgType::HEADERS, nCount);
 
         const CBlockIndex *pindexLast = NULL;
         {
@@ -2371,6 +2394,8 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
     {
         std::shared_ptr<CBlock> pblock = std::make_shared<CBlock>();
         vRecv >> *pblock;
+
+        incomingCounters.add(NetMsgType::BLOCK);
 
         LogPrint("net", "received block %s peer=%d\n", pblock->GetHash().ToString(), pfrom->id);
 
@@ -3030,6 +3055,7 @@ bool SendMessages(CNode* pto, CConnman& connman, const std::atomic<bool>& interr
                         LogPrint("net", "%s: sending header %s to peer=%d\n", __func__,
                                 vHeaders.front().GetHash().ToString(), pto->id);
                     }
+                    outgoingCounters.add(NetMsgType::HEADERS, vHeaders.size());
                     connman.PushMessage(pto, msgMaker.Make(NetMsgType::HEADERS, vHeaders));
                     state.pindexBestHeaderSent = pBestIndex;
                 } else
